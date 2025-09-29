@@ -10,7 +10,15 @@
     "sdkVersion": "54.0.0",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.vibzworld.app"
+      "bundleIdentifier": "com.vibzworld.app",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLName": "vibzworld",
+            "CFBundleURLSchemes": ["vibzworld"]
+          }
+        ]
+      }
     },
     "android": {
       "package": "com.vibzworld.app",
