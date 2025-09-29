@@ -84,10 +84,6 @@ export default function BrowserScreen() {
     }
   };
 
-  const handleGoogleAuthRequest = () => {
-    console.log('Google Auth requested from WebView');
-  };
-
   const goHome = () => {
     setShowWebView(false);
     setCurrentUrl('');
@@ -177,7 +173,6 @@ export default function BrowserScreen() {
         onLoadEnd={handleLoadEnd}
         onError={handleError}
         onNavigationStateChange={handleNavigationStateChange}
-        onGoogleAuthRequest={handleGoogleAuthRequest}
         javaScriptEnabled={true}
         domStorageEnabled={true}
         startInLoadingState={true}
