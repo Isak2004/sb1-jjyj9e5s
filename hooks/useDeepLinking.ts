@@ -21,14 +21,20 @@ export function useDeepLinking() {
       // Parse the URL to extract the target website
       const parsedUrl = Linking.parse(url);
       
+      // Handle auth callback
+      if (parsedUrl.scheme === 'vibzworld' && parsedUrl.hostname === 'auth') {
+        // This will be handled by expo-auth-session automatically
+        return;
+      }
+      
       // Check if it's our app scheme with a URL parameter
-      if (parsedUrl.scheme === 'browser-app' && parsedUrl.queryParams?.url) {
+      if (parsedUrl.scheme === 'vibzworld' && parsedUrl.queryParams?.url) {
         const targetUrl = parsedUrl.queryParams.url as string;
         // Navigate to browser with the target URL
         router.push(`/?url=${encodeURIComponent(targetUrl)}`);
       }
       // Handle direct HTTP/HTTPS URLs (for Android intent filters)
-      else if (parsedUrl.scheme === 'http' || parsedUrl.scheme === 'https') {
+      else if ((parsedUrl.scheme === 'http' || parsedUrl.scheme === 'https') && parsedUrl.hostname === 'enter.vibz.world') {
         // Navigate to browser with the full URL
         router.push(`/?url=${encodeURIComponent(url)}`);
       }
