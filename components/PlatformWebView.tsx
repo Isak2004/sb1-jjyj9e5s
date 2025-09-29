@@ -1,7 +1,6 @@
 import React from 'react';
 import { Platform, View, StyleSheet, Text } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { useGoogleAuth } from '@/hooks/useGoogleAuth';
 
 interface PlatformWebViewProps {
   source: { uri: string };
@@ -30,8 +29,6 @@ const WebWebView = React.forwardRef<HTMLIFrameElement, PlatformWebViewProps>(
     const [currentUrl, setCurrentUrl] = React.useState(source.uri);
     const iframeRef = React.useRef<HTMLIFrameElement>(null);
     const containerRef = React.useRef<HTMLDivElement>(null);
-    
-    const googleAuth = useGoogleAuth({ clientId: GOOGLE_CLIENT_ID });
 
     React.useImperativeHandle(ref, () => ({
       reload: () => {
@@ -63,27 +60,12 @@ const WebWebView = React.forwardRef<HTMLIFrameElement, PlatformWebViewProps>(
       const handleMessage = (event: MessageEvent) => {
         if (event.data?.type === 'GOOGLE_AUTH_REQUEST') {
           onGoogleAuthRequest?.();
-          googleAuth.signIn();
         }
       };
 
       window.addEventListener('message', handleMessage);
       return () => window.removeEventListener('message', handleMessage);
-    }, [onGoogleAuthRequest, googleAuth]);
-
-    // Send auth result to iframe
-    React.useEffect(() => {
-      if (googleAuth.authResult && iframeRef.current?.contentWindow) {
-        try {
-          iframeRef.current.contentWindow.postMessage({
-            type: 'GOOGLE_AUTH_RESULT',
-            result: googleAuth.authResult,
-          }, '*');
-        } catch (err) {
-          console.log('Failed to send auth result:', err);
-        }
-      }
-    }, [googleAuth.authResult]);
+    }, [onGoogleAuthRequest]);
 
     const enterFullscreen = async () => {
       try {
@@ -117,19 +99,8 @@ const WebWebView = React.forwardRef<HTMLIFrameElement, PlatformWebViewProps>(
             window.isVibzWorldApp = true;
             window.VibzWorldApp = {
               version: '1.0',
-              requestGoogleAuth: function() {
-                window.parent.postMessage({ type: 'GOOGLE_AUTH_REQUEST' }, '*');
-              }
+              // Auth functionality temporarily disabled
             };
-            
-            // Listen for auth results
-            window.addEventListener('message', function(event) {
-              if (event.data?.type === 'GOOGLE_AUTH_RESULT') {
-                window.dispatchEvent(new CustomEvent('vibzworld:auth:result', {
-                  detail: event.data.result
-                }));
-              }
-            });
             
             console.log('VibzWorld App integration ready');
           `;
@@ -294,7 +265,6 @@ const WebWebView = React.forwardRef<HTMLIFrameElement, PlatformWebViewProps>(
 
 // Main PlatformWebView component
 const PlatformWebView = React.forwardRef<any, PlatformWebViewProps>(({ onGoogleAuthRequest, ...props }, ref) => {
-  const googleAuth = useGoogleAuth({ clientId: GOOGLE_CLIENT_ID });
   const webViewRef = React.useRef<any>(null);
 
   React.useImperativeHandle(ref, () => webViewRef.current);
@@ -303,36 +273,20 @@ const PlatformWebView = React.forwardRef<any, PlatformWebViewProps>(({ onGoogleA
   const handleMessage = (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'GOOGLE_AUTH_REQUEST') {
-        onGoogleAuthRequest?.();
-        googleAuth.signIn();
+      if (data.type === 'console') {
+        console.log(`[WebView ${data.level}]:`, ...data.args);
       }
     } catch (err) {
       console.log('Failed to parse WebView message:', err);
     }
   };
 
-  // Send auth result to WebView (mobile)
-  React.useEffect(() => {
-    if (googleAuth.authResult && webViewRef.current && Platform.OS !== 'web') {
-      const script = `
-        window.dispatchEvent(new CustomEvent('vibzworld:auth:result', {
-          detail: ${JSON.stringify(googleAuth.authResult)}
-        }));
-        true;
-      `;
-      webViewRef.current.injectJavaScript(script);
-    }
-  }, [googleAuth.authResult]);
-
   const injectedJavaScript = `
     // Mark as VibzWorld app
     window.isVibzWorldApp = true;
     window.VibzWorldApp = {
       version: '1.0',
-      requestGoogleAuth: function() {
-        window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'GOOGLE_AUTH_REQUEST' }));
-      }
+      // Auth functionality temporarily disabled
     };
     
     console.log('VibzWorld App integration ready');
