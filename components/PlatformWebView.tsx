@@ -2,6 +2,7 @@ import React from 'react';
 import { Platform, View, StyleSheet, Text } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useGoogleAuth } from '@/hooks/useGoogleAuth';
+import { useGoogleAuth } from '@/hooks/useGoogleAuth';
 
 interface PlatformWebViewProps {
   source: { uri: string };
@@ -17,6 +18,7 @@ interface PlatformWebViewProps {
   bounces?: boolean;
   allowsBackForwardNavigationGestures?: boolean;
   ref?: React.RefObject<any>;
+  onGoogleAuthRequest?: () => void;
   onGoogleAuthRequest?: () => void;
 }
 
@@ -44,12 +46,32 @@ const WebWebView = React.forwardRef<HTMLIFrameElement, PlatformWebViewProps>(
       return () => window.removeEventListener('message', handleMessage);
     }, [onGoogleAuthRequest]);
 
+    // Listen for messages from the iframe
+    React.useEffect(() => {
+      const handleMessage = (event: MessageEvent) => {
+        // Only accept messages from our domain
+        if (event.origin !== 'https://enter.vibz.world') return;
+        
+        if (event.data?.type === 'GOOGLE_AUTH_REQUEST') {
+          onGoogleAuthRequest?.();
+        }
+      };
+
+      window.addEventListener('message', handleMessage);
+      return () => window.removeEventListener('message', handleMessage);
+    }, [onGoogleAuthRequest]);
+
     React.useImperativeHandle(ref, () => ({
       reload: () => {
         if (iframeRef.current) {
           setLoading(true);
           setError(null);
           iframeRef.current.src = currentUrl + (currentUrl.includes('?') ? '&' : '?') + '_reload=' + Date.now();
+        }
+      },
+      postMessage: (message: any) => {
+        if (iframeRef.current?.contentWindow) {
+          iframeRef.current.contentWindow.postMessage(message, 'https://enter.vibz.world');
         }
       },
       postMessage: (message: any) => {
@@ -325,6 +347,7 @@ const PlatformWebView = React.forwardRef<any, PlatformWebViewProps>((props, ref)
       console.error('Error handling WebView message:', error);
     }
   };
+
   if (Platform.OS === 'web') {
     return <WebWebView {...props} ref={ref} onGoogleAuthRequest={handleGoogleAuthRequest} />;
   }
