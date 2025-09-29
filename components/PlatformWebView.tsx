@@ -2,6 +2,7 @@ import React from 'react';
 import { Platform, View, StyleSheet, Text } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useGoogleAuth } from '@/hooks/useGoogleAuth';
+import { useGoogleAuth } from '@/hooks/useGoogleAuth';
 
 interface PlatformWebViewProps {
   source: { uri: string };
@@ -17,6 +18,7 @@ interface PlatformWebViewProps {
   bounces?: boolean;
   allowsBackForwardNavigationGestures?: boolean;
   ref?: React.RefObject<any>;
+  onGoogleAuthRequest?: () => void;
   onGoogleAuthRequest?: () => void;
 }
 
@@ -44,12 +46,32 @@ const WebWebView = React.forwardRef<HTMLIFrameElement, PlatformWebViewProps>(
       return () => window.removeEventListener('message', handleMessage);
     }, [onGoogleAuthRequest]);
 
+    // Listen for messages from the iframe
+    React.useEffect(() => {
+      const handleMessage = (event: MessageEvent) => {
+        // Only accept messages from our domain
+        if (event.origin !== 'https://enter.vibz.world') return;
+        
+        if (event.data?.type === 'GOOGLE_AUTH_REQUEST') {
+          onGoogleAuthRequest?.();
+        }
+      };
+
+      window.addEventListener('message', handleMessage);
+      return () => window.removeEventListener('message', handleMessage);
+    }, [onGoogleAuthRequest]);
+
     React.useImperativeHandle(ref, () => ({
       reload: () => {
         if (iframeRef.current) {
           setLoading(true);
           setError(null);
           iframeRef.current.src = currentUrl + (currentUrl.includes('?') ? '&' : '?') + '_reload=' + Date.now();
+        }
+      },
+      postMessage: (message: any) => {
+        if (iframeRef.current?.contentWindow) {
+          iframeRef.current.contentWindow.postMessage(message, 'https://enter.vibz.world');
         }
       },
       postMessage: (message: any) => {
@@ -325,6 +347,91 @@ const PlatformWebView = React.forwardRef<any, PlatformWebViewProps>((props, ref)
       console.error('Error handling WebView message:', error);
     }
   };
+
+  const { signInWithGoogle, isLoading: authLoading } = useGoogleAuth();
+  const webViewRef = React.useRef<any>(null);
+
+  // Handle Google Auth request from WebView
+  const handleGoogleAuthRequest = async () => {
+    try {
+      const result = await signInWithGoogle();
+      
+      // Send the result back to the WebView
+      const message = {
+        type: 'GOOGLE_AUTH_RESPONSE',
+        success: !result.error,
+        data: result.error ? { error: result.error } : {
+          accessToken: result.accessToken,
+          idToken: result.idToken,
+          user: result.user,
+        },
+      };
+
+      if (Platform.OS === 'web') {
+        webViewRef.current?.postMessage(message);
+      } else {
+        webViewRef.current?.postMessage(JSON.stringify(message));
+      }
+    } catch (error) {
+      console.error('Google Auth error:', error);
+    }
+  };
+
+  // Inject JavaScript to handle communication and detect mobile app
+  const injectedJavaScript = `
+    (function() {
+      // Set custom user agent identifier
+      Object.defineProperty(navigator, 'userAgent', {
+        get: function() { return navigator.userAgent + ' VibzWorldApp/1.0'; }
+      });
+
+      // Listen for messages from React Native
+      window.addEventListener('message', function(event) {
+        if (event.data && typeof event.data === 'string') {
+          try {
+            const message = JSON.parse(event.data);
+            if (message.type === 'GOOGLE_AUTH_RESPONSE') {
+              // Dispatch custom event that your web app can listen to
+              window.dispatchEvent(new CustomEvent('googleAuthResponse', { detail: message }));
+            }
+          } catch (e) {
+            console.error('Error parsing message:', e);
+          }
+        } else if (event.data && event.data.type === 'GOOGLE_AUTH_RESPONSE') {
+          // For web platform (direct object)
+          window.dispatchEvent(new CustomEvent('googleAuthResponse', { detail: event.data }));
+        }
+      });
+
+      // Function to request Google Auth (your web app should call this)
+      window.requestGoogleAuth = function() {
+        if (window.ReactNativeWebView) {
+          // Mobile platform
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'GOOGLE_AUTH_REQUEST' }));
+        } else if (window.parent !== window) {
+          // Web platform (iframe)
+          window.parent.postMessage({ type: 'GOOGLE_AUTH_REQUEST' }, 'https://enter.vibz.world');
+        }
+      };
+
+      // Detect if running in mobile app
+      window.isVibzWorldApp = true;
+      
+      true; // Required for injected JavaScript
+    })();
+  `;
+
+  const handleMessage = (event: any) => {
+    try {
+      const message = Platform.OS === 'web' ? event.data : JSON.parse(event.nativeEvent.data);
+      
+      if (message.type === 'GOOGLE_AUTH_REQUEST') {
+        handleGoogleAuthRequest();
+      }
+    } catch (error) {
+      console.error('Error handling WebView message:', error);
+    }
+  };
   if (Platform.OS === 'web') {
     return <WebWebView {...props} ref={ref} onGoogleAuthRequest={handleGoogleAuthRequest} />;
   }
@@ -334,6 +441,19 @@ const PlatformWebView = React.forwardRef<any, PlatformWebViewProps>((props, ref)
     <WebView
       {...props}
       ref={(ref) => {
+        webViewRef.current = ref;
+        if (typeof props.ref === 'function') {
+          props.ref(ref);
+        } else if (props.ref) {
+          props.ref.current = ref;
+        }
+      }}
+      injectedJavaScript={injectedJavaScript}
+      onMessage={handleMessage}
+      userAgent="VibzWorldApp/1.0"
+      mixedContentMode="compatibility"
+      allowsInlineMediaPlayback={true}
+      mediaPlaybackRequiresUserAction={false}
         webViewRef.current = ref;
         if (typeof props.ref === 'function') {
           props.ref(ref);
