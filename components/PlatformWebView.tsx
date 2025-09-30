@@ -1,7 +1,6 @@
 import React from 'react';
 import { Platform, View, StyleSheet, Text } from 'react-native';
 import { WebView } from 'react-native-webview';
-import * as Linking from 'expo-linking';
 
 interface PlatformWebViewProps {
   source: { uri: string };
@@ -19,9 +18,6 @@ interface PlatformWebViewProps {
   ref?: React.RefObject<any>;
 }
 
-const GOOGLE_CLIENT_ID = '130221165582-8nbialqq6t9vhefs5iu8hqos0b31inhg.apps.googleusercontent.com';
-const REDIRECT_URI = 'vibzworld://auth';
-
 // Web-specific WebView component using iframe with complete fullscreen support
 const WebWebView = React.forwardRef<HTMLIFrameElement, PlatformWebViewProps>(
   ({ source, style, onLoadStart, onLoadEnd, onError, onNavigationStateChange, ...props }, ref) => {
@@ -31,66 +27,12 @@ const WebWebView = React.forwardRef<HTMLIFrameElement, PlatformWebViewProps>(
     const iframeRef = React.useRef<HTMLIFrameElement>(null);
     const containerRef = React.useRef<HTMLDivElement>(null);
 
-    // Handle Google OAuth
-    const handleGoogleAuth = async () => {
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
-        `client_id=${GOOGLE_CLIENT_ID}&` +
-        `redirect_uri=${encodeURIComponent(REDIRECT_URI)}&` +
-        `response_type=token&` +
-        `scope=${encodeURIComponent('openid profile email')}`;
-      
-      // Open in new window for web
-      const authWindow = window.open(authUrl, '_blank', 'width=500,height=600');
-      
-      // Listen for the callback
-      const handleCallback = (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-        
-        if (event.data.type === 'GOOGLE_AUTH_CALLBACK') {
-          authWindow?.close();
-          
-          // Send result to iframe
-          if (iframeRef.current?.contentWindow) {
-            iframeRef.current.contentWindow.postMessage({
-              type: 'GOOGLE_AUTH_RESPONSE',
-              success: event.data.success,
-              data: event.data.data
-            }, 'https://enter.vibz.world');
-          }
-          
-          window.removeEventListener('message', handleCallback);
-        }
-      };
-      
-      window.addEventListener('message', handleCallback);
-    };
-
-    // Listen for messages from the iframe
-    React.useEffect(() => {
-      const handleMessage = (event: MessageEvent) => {
-        // Only accept messages from our domain
-        if (event.origin !== 'https://enter.vibz.world') return;
-        
-        if (event.data?.type === 'GOOGLE_AUTH_REQUEST') {
-          handleGoogleAuth();
-        }
-      };
-
-      window.addEventListener('message', handleMessage);
-      return () => window.removeEventListener('message', handleMessage);
-    }, []);
-
     React.useImperativeHandle(ref, () => ({
       reload: () => {
         if (iframeRef.current) {
           setLoading(true);
           setError(null);
           iframeRef.current.src = currentUrl + (currentUrl.includes('?') ? '&' : '?') + '_reload=' + Date.now();
-        }
-      },
-      postMessage: (message: any) => {
-        if (iframeRef.current?.contentWindow) {
-          iframeRef.current.contentWindow.postMessage(message, 'https://enter.vibz.world');
         }
       },
       goBack: () => {
@@ -277,186 +219,12 @@ const WebWebView = React.forwardRef<HTMLIFrameElement, PlatformWebViewProps>(
 
 // Main PlatformWebView component
 const PlatformWebView = React.forwardRef<any, PlatformWebViewProps>((props, ref) => {
-  const webViewRef = React.useRef<any>(null);
-
-  // Handle Google OAuth using Linking API
-  React.useEffect(() => {
-    const handleAuthCallback = (url: string) => {
-      if (url.startsWith(REDIRECT_URI)) {
-        // Parse the callback URL
-        const urlParts = url.split('#');
-        if (urlParts.length > 1) {
-          const params = new URLSearchParams(urlParts[1]);
-          const accessToken = params.get('access_token');
-          const tokenType = params.get('token_type');
-          const expiresIn = params.get('expires_in');
-          
-          if (accessToken) {
-            // Get user info from Google
-            fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${accessToken}`)
-              .then(response => response.json())
-              .then(userInfo => {
-                // Send success result to WebView
-                const message = {
-                  type: 'GOOGLE_AUTH_RESPONSE',
-                  success: true,
-                  data: {
-                    accessToken,
-                    tokenType,
-                    expiresIn,
-                    user: userInfo
-                  }
-                };
-                
-                if (webViewRef.current) {
-                  webViewRef.current.postMessage(JSON.stringify(message));
-                }
-              })
-              .catch(error => {
-                console.error('Error fetching user info:', error);
-                const message = {
-                  type: 'GOOGLE_AUTH_RESPONSE',
-                  success: false,
-                  data: { error: 'Failed to fetch user info' }
-                };
-                
-                if (webViewRef.current) {
-                  webViewRef.current.postMessage(JSON.stringify(message));
-                }
-              });
-          } else {
-            // Send error result to WebView
-            const message = {
-              type: 'GOOGLE_AUTH_RESPONSE',
-              success: false,
-              data: { error: 'No access token received' }
-            };
-            
-            if (webViewRef.current) {
-              webViewRef.current.postMessage(JSON.stringify(message));
-            }
-          }
-        }
-      }
-    };
-
-    // Handle initial URL (when app is opened from callback)
-    Linking.getInitialURL().then(url => {
-      if (url) {
-        handleAuthCallback(url);
-      }
-    });
-
-    // Listen for URL changes (when app is already running)
-    const subscription = Linking.addEventListener('url', (event) => {
-      handleAuthCallback(event.url);
-    });
-
-    return () => {
-      subscription?.remove();
-    };
-  }, []);
-
-  // Handle Google Auth request from WebView
-  const handleGoogleAuthRequest = async () => {
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
-      `client_id=${GOOGLE_CLIENT_ID}&` +
-      `redirect_uri=${encodeURIComponent(REDIRECT_URI)}&` +
-      `response_type=token&` +
-      `scope=${encodeURIComponent('openid profile email')}`;
-    
-    try {
-      const canOpen = await Linking.canOpenURL(authUrl);
-      if (canOpen) {
-        await Linking.openURL(authUrl);
-      } else {
-        console.error('Cannot open OAuth URL');
-      }
-    } catch (error) {
-      console.error('Error opening OAuth URL:', error);
-    }
-  };
-
-  // Inject JavaScript to handle communication and detect mobile app
-  const injectedJavaScript = `
-    (function() {
-      // Set custom user agent identifier
-      Object.defineProperty(navigator, 'userAgent', {
-        get: function() { return navigator.userAgent + ' VibzWorldApp/1.0'; }
-      });
-
-      // Listen for messages from React Native
-      window.addEventListener('message', function(event) {
-        if (event.data && typeof event.data === 'string') {
-          try {
-            const message = JSON.parse(event.data);
-            if (message.type === 'GOOGLE_AUTH_RESPONSE') {
-              // Dispatch custom event that your web app can listen to
-              window.dispatchEvent(new CustomEvent('googleAuthResponse', { detail: message }));
-            }
-          } catch (e) {
-            console.error('Error parsing message:', e);
-          }
-        } else if (event.data && event.data.type === 'GOOGLE_AUTH_RESPONSE') {
-          // For web platform (direct object)
-          window.dispatchEvent(new CustomEvent('googleAuthResponse', { detail: event.data }));
-        }
-      });
-
-      // Function to request Google Auth (your web app should call this)
-      window.requestGoogleAuth = function() {
-        if (window.ReactNativeWebView) {
-          // Mobile platform
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'GOOGLE_AUTH_REQUEST' }));
-        } else if (window.parent !== window) {
-          // Web platform (iframe)
-          window.parent.postMessage({ type: 'GOOGLE_AUTH_REQUEST' }, 'https://enter.vibz.world');
-        }
-      };
-
-      // Detect if running in mobile app
-      window.isVibzWorldApp = true;
-      
-      true; // Required for injected JavaScript
-    })();
-  `;
-
-  const handleMessage = (event: any) => {
-    try {
-      const message = Platform.OS === 'web' ? event.data : JSON.parse(event.nativeEvent.data);
-      
-      if (message.type === 'GOOGLE_AUTH_REQUEST') {
-        handleGoogleAuthRequest();
-      }
-    } catch (error) {
-      console.error('Error handling WebView message:', error);
-    }
-  };
-
   if (Platform.OS === 'web') {
     return <WebWebView {...props} ref={ref} />;
   }
 
   // For mobile platforms, use react-native-webview
-  return (
-    <WebView
-      {...props}
-      ref={(ref) => {
-        webViewRef.current = ref;
-        if (typeof props.ref === 'function') {
-          props.ref(ref);
-        } else if (props.ref) {
-          props.ref.current = ref;
-        }
-      }}
-      injectedJavaScript={injectedJavaScript}
-      onMessage={handleMessage}
-      userAgent="VibzWorldApp/1.0"
-      mixedContentMode="compatibility"
-      allowsInlineMediaPlayback={true}
-      mediaPlaybackRequiresUserAction={false}
-    />
-  );
+  return <WebView {...props} ref={ref} />;
 });
 
 export default PlatformWebView;
